@@ -1,0 +1,82 @@
+name: NVRM for Golden Gate (Darwin 27) with BAR1 preflight
+
+# Builds NVRM.kext from v3.0.0-beta.1 with two changes over the release:
+#   - nvrm_kernel_supported() also accepts Darwin 27 (macOS 27), so NVRM claims the GPU there
+#   - the BAR1 preflight that 2.9 shipped (apertures staged before any PCI write) is already in this tree
+# The result replaces Kexts/NVRM.kext in nullmoth-v3-kit-3.0.0-beta.1.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [test/bar-preflight-v3-macos27]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: golden-gate-nvrm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    env:
+      JOBS: 4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select matching Intel macOS toolchain
+        run: |
+          set -euo pipefail
+          for x in /Applications/Xcode_16.4.app /Applications/Xcode_16.3.app /Applications/Xcode_16.2.app; do
+            if [ -d "$x" ]; then sudo xcode-select -s "$x"; break; fi
+          done
+          xcodebuild -version
+          echo "SDK $(xcrun --show-sdk-version) at $(xcrun --show-sdk-path)"
+
+      - name: Fetch pristine NVIDIA 620.70.06
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch 620.70.06 https://github.com/NVIDIA/open-gpu-kernel-modules.git .deps/ogkm
+          test "$(git -C .deps/ogkm rev-parse HEAD)" = e6a2e01579fbbd1ca2ed43fef2ee2589e9bd8bd9
+          echo "ok"
+
+      - name: Build RM core (applies kexts/NVRM/patches in this tree)
+        run: bash build/build_rm620.sh "$PWD/work" "$PWD/.deps/ogkm"
+
+      - name: Build NVKMS archive
+        run: bash build/build_kms620.sh "$PWD/work"
+
+      - name: Build and link NVRM.kext
+        run: bash build/build_nvrm.sh "$PWD/kexts/NVRM" "$PWD/work/ogkm-620.70.06" "$PWD/out"
+
+      - name: Sign and prove
+        run: |
+          set -euo pipefail
+          K="$PWD/out/NVRM.kext"
+          codesign --force --sign - "$K"
+          codesign --verify --strict "$K"
+          N="$K/Contents/MacOS/NVRM"
+          echo "--- proof ---"
+          stat -f "size %z" "$N"
+          shasum -a 256 "$N"
+          strings -a "$N" | grep -m1 "nvidia id: NVIDIA" || true
+          echo "preflight markers: $(strings -a "$N" | grep -c 'preflight')"
+          echo "old rollback log (must be 0): $(strings -a "$N" | grep -c 'aperture list could not be built' || true)"
+          echo "darwin gate: $(strings -a "$N" | grep -c 'is not supported by this driver' || true)"
+          {
+            echo "built_from=$(git rev-parse --short HEAD)"
+            echo "upstream=v3.0.0-beta.1"
+            echo "nvidia=620.70.06"
+            echo "nvrm_sha256=$(shasum -a 256 "$N" | cut -d' ' -f1)"
+            echo "nvrm_size=$(stat -f %z "$N")"
+          } > "$PWD/out/PROOF.txt"
+          cat "$PWD/out/PROOF.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nvrm-golden-gate-${{ github.run_number }}
+          path: |
+            out/NVRM.kext
+            out/PROOF.txt
+          retention-days: 14
