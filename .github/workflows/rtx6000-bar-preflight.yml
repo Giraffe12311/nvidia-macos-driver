@@ -1,8 +1,8 @@
-name: RTX6000 BAR preflight test 2.7.2
+name: RTX6000 BAR NVRM 615 macOS27 preflight test
 on:
   workflow_dispatch:
   push:
-    branches: [test/rtx6000-bar-preflight-2.7.2]
+    branches: [test/nvrm615-macos27-preflight]
 permissions:
   contents: read
 concurrency:
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: rtx6000-bar-preflight-2.7.2-${{ github.run_number }}
+          name: nvrm615-macos27-${{ github.run_number }}
           path: |
             build-out/logs/
             build-out/build-proof.json

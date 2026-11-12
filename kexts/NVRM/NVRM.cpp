@@ -33,7 +33,9 @@ extern "C" {
 
 // The 2.x driver is built for macOS 15 (Darwin 24) and macOS 26 (Darwin 25) only; on any other kernel NVRM
 // claims nothing, so NVRMFB and NVRMAGDC, which attach to it, never start either.
-static bool nvrm_kernel_supported(void) { return version_major == 24 || version_major == 25; }
+// EXPERIMENT: also allow Darwin 27 (macOS 27) so this 615-based NVRM can be tried on Golden Gate.
+// The v3 kit ships a 615 NVRM built by the author for macOS 27; this is a local rebuild, not that build.
+static bool nvrm_kernel_supported(void) { return version_major == 24 || version_major == 25 || version_major == 27; }
 
 #include "nvrm_gpuva_abi.h"
 #define NVRM_SS_KERNEL_ABI 1
